@@ -467,6 +467,68 @@ impl DriftField {
         self.drifts[drift].deposit(col, volume);
     }
 
+    pub fn index_of(&self, id: SurfaceId) -> Option<usize> {
+        self.drifts.iter().position(|d| d.id == id)
+    }
+
+    pub fn get(&self, id: SurfaceId) -> Option<&Drift> {
+        self.drifts.iter().find(|d| d.id == id)
+    }
+
+    /// Finds the highest surface base line at `x` crossed between `from_y`
+    /// and `to_y` where the surface is visible.
+    pub fn find_ledge(&self, x: f32, from_y: f32, to_y: f32) -> Option<&Drift> {
+        self.drifts
+            .iter()
+            .filter(|d| from_y <= d.y && to_y >= d.y)
+            .filter(|d| d.column_at(x).is_some_and(|c| d.exposed[c]))
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+    }
+
+    /// Whether `p` is inside a visible pile (or within `slack` points above
+    /// it).
+    pub fn hit_pile(&self, p: Vec2, slack: f32) -> bool {
+        self.drifts.iter().any(|d| {
+            d.column_at(p.x).is_some_and(|c| {
+                d.exposed[c]
+                    && d.heights[c] > 1.0
+                    && p.y >= d.surface_y(c) - slack
+                    && p.y <= d.y + 2.0
+            })
+        })
+    }
+
+    /// Removes up to `max_volume` of snow that overlaps a disc, returning the
+    /// amount taken.
+    pub fn take_snow(&mut self, center: Vec2, radius: f32, max_volume: f32) -> f32 {
+        let mut taken = 0.0;
+        for d in &mut self.drifts {
+            if center.y + radius < d.y - d.max_height || center.y - radius > d.y {
+                continue;
+            }
+            let first = ((center.x - radius - d.x) / COLUMN_WIDTH).floor().max(0.0) as usize;
+            let last = (((center.x + radius - d.x) / COLUMN_WIDTH).ceil().max(0.0) as usize)
+                .min(d.heights.len());
+            for i in first..last {
+                if taken >= max_volume || !d.exposed[i] {
+                    continue;
+                }
+                let dx = d.column_center(i) - center.x;
+                let half = (radius * radius - dx * dx).max(0.0).sqrt();
+                // Part of the column that lies inside the disc.
+                let top = d.surface_y(i).max(center.y - half);
+                let bottom = d.y.min(center.y + half);
+                let h = (bottom - top).max(0.0);
+                let v = (h * COLUMN_WIDTH).min(max_volume - taken);
+                if v > 0.0 {
+                    d.heights[i] -= v / COLUMN_WIDTH;
+                    taken += v;
+                }
+            }
+        }
+        taken
+    }
+
     /// Brushes snow away around the cursor (the "mitten").
     pub fn brush(
         &mut self,

@@ -70,7 +70,9 @@ fn disc_vs(
     @location(4) softness: f32,
 ) -> DiscOut {
     var quad = QUAD;
-    let corner = quad[vi] * REACH;
+    // Leave room for a rim about three pixels wide.
+    let reach = min(1.0 + 4.0 / max(radius * viewport.scale, 0.5), REACH);
+    let corner = quad[vi] * reach;
     var out: DiscOut;
     out.pos = to_clip(center + corner * radius);
     out.local = corner;
@@ -87,7 +89,8 @@ fn disc_fs(in: DiscOut) -> @location(0) vec4<f32> {
     let edge = max(aa, in.params.z);
     let fill = 1.0 - smoothstep(1.0 - edge, 1.0 + aa, d);
     // A faint dark rim keeps white snow visible over white windows.
-    let ring = (1.0 - smoothstep(1.15, REACH, d)) * (1.0 - fill) * in.params.y;
+    let rim = 1.0 + 3.0 / max(in.params.x, 0.5);
+    let ring = (1.0 - smoothstep(1.0, rim, d)) * (1.0 - fill) * in.params.y;
     let fill_a = fill * in.color.a;
     let ring_a = ring * 0.22 * in.color.a;
     let shade = vec3<f32>(0.25, 0.32, 0.42);

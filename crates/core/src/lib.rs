@@ -9,6 +9,7 @@ pub mod flake;
 pub mod geom;
 pub mod scene;
 pub mod settings;
+pub mod snowball;
 pub mod world;
 
 pub use drift::{COLUMN_WIDTH, Drift};
@@ -16,4 +17,5 @@ pub use flake::{Flake, FlakeKind};
 pub use geom::Rect;
 pub use scene::{Obstacle, Scene, SurfaceId};
 pub use settings::{Intensity, Settings};
+pub use snowball::{BallState, Snowball};
 pub use world::World;

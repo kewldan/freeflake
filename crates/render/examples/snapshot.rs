@@ -92,6 +92,45 @@ fn main() -> Result<()> {
     }
     let sim = start.elapsed();
 
+    // Roll three balls along the light window's pile and stack them on the
+    // small window: a snowman.
+    let mut scene = scene;
+    let frame = |world: &mut World, scene: &mut Scene, p: Vec2, down: bool| {
+        scene.cursor = Some(p);
+        scene.grab = true;
+        scene.mouse_down = down;
+        world.step(1.0 / 60.0, scene);
+    };
+    for len in [420.0, 300.0, 200.0] {
+        let start = Vec2::new(180.0, 256.0);
+        frame(&mut world, &mut scene, start, true);
+        let steps = (len / 4.0) as usize;
+        for i in 0..steps {
+            let x = 180.0 + (i as f32 * 4.0) % 480.0;
+            frame(&mut world, &mut scene, Vec2::new(x, 256.0), true);
+        }
+        let drop = Vec2::new(1180.0, 40.0);
+        for _ in 0..30 {
+            frame(&mut world, &mut scene, drop, true);
+        }
+        frame(&mut world, &mut scene, drop, false);
+        for _ in 0..90 {
+            frame(&mut world, &mut scene, Vec2::new(-500.0, -500.0), false);
+        }
+    }
+    scene.grab = false;
+    for _ in 0..120 {
+        world.step(1.0 / 60.0, &scene);
+    }
+    println!(
+        "balls: {:?}",
+        world
+            .snowballs()
+            .iter()
+            .map(|b| (b.radius.round(), b.state))
+            .collect::<Vec<_>>()
+    );
+
     let mut draw = DrawList::default();
     let t = std::time::Instant::now();
     draw.build(&world);

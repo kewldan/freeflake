@@ -1,7 +1,8 @@
 //! Converts the simulation state into GPU-ready geometry.
 
 use bytemuck::{Pod, Zeroable};
-use freeflake_core::{COLUMN_WIDTH, Drift, FlakeKind, World};
+use freeflake_core::{COLUMN_WIDTH, Drift, FlakeKind, Snowball, World};
+use glam::Vec2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -30,18 +31,22 @@ const SNOW_RIM: [f32; 4] = [0.36, 0.45, 0.6, 0.45];
 /// Everything to draw this frame, in desktop points.
 #[derive(Default)]
 pub struct DrawList {
+    /// Triangles drawn below the discs.
     pub mesh: Vec<MeshVertex>,
     pub discs: Vec<Disc>,
+    /// Triangles drawn above the discs.
+    pub mesh_top: Vec<MeshVertex>,
 }
 
 impl DrawList {
     pub fn clear(&mut self) {
         self.mesh.clear();
         self.discs.clear();
+        self.mesh_top.clear();
     }
 
     pub fn is_empty(&self) -> bool {
-        self.mesh.is_empty() && self.discs.is_empty()
+        self.mesh.is_empty() && self.discs.is_empty() && self.mesh_top.is_empty()
     }
 
     /// Rebuilds the list from the world.
@@ -63,6 +68,137 @@ impl DrawList {
                 softness,
             });
         }
+        let balls = world.snowballs();
+        for b in balls {
+            self.add_ball(b);
+        }
+        for stack in world.snowmen() {
+            let stack: Vec<&Snowball> = stack.iter().map(|&i| &balls[i]).collect();
+            self.add_snowman(&stack);
+        }
+    }
+
+    fn add_ball(&mut self, b: &Snowball) {
+        let r = b.radius;
+        let c = b.pos;
+        // Shadowed body, then a soft highlight towards the top-left.
+        self.discs.push(Disc {
+            center: c.to_array(),
+            radius: r,
+            outline: 0.9,
+            color: [0.78, 0.84, 0.93, 1.0],
+            softness: 0.0,
+        });
+        self.discs.push(Disc {
+            center: (c + Vec2::new(-0.14, -0.16) * r).to_array(),
+            radius: r * 0.82,
+            outline: 0.0,
+            color: [0.99, 0.995, 1.0, 1.0],
+            softness: 0.45,
+        });
+    }
+
+    fn add_snowman(&mut self, stack: &[&Snowball]) {
+        let head = stack[stack.len() - 1];
+        let body = stack[stack.len() - 2];
+        let (c, r) = (head.pos, head.radius);
+        let coal = [0.12, 0.12, 0.14, 1.0];
+        let dot = |center: Vec2, radius: f32| Disc {
+            center: center.to_array(),
+            radius,
+            outline: 0.0,
+            color: coal,
+            softness: 0.1,
+        };
+        // Eyes.
+        for side in [-1.0, 1.0] {
+            self.discs.push(dot(
+                c + Vec2::new(side * 0.33 * r, -0.2 * r),
+                (0.11 * r).max(1.0),
+            ));
+        }
+        // Smile.
+        for k in 0..5 {
+            let a = std::f32::consts::PI * (0.25 + 0.125 * k as f32);
+            let p = c + Vec2::new(a.cos() * 0.5 * r, a.sin() * 0.42 * r + 0.08 * r);
+            self.discs.push(dot(p, (0.06 * r).max(0.7)));
+        }
+        // Buttons on every ball below the head except the bottom one, or on
+        // the body of a two-ball snowman.
+        let with_buttons = if stack.len() > 2 {
+            &stack[1..stack.len() - 1]
+        } else {
+            &stack[..1]
+        };
+        for b in with_buttons {
+            for k in -1..=1 {
+                let p = b.pos + Vec2::new(0.0, k as f32 * 0.32 * b.radius);
+                self.discs.push(dot(p, (0.08 * b.radius).max(1.0)));
+            }
+        }
+        // Carrot nose.
+        let orange = [0.95, 0.5, 0.12, 1.0];
+        let nose = c + Vec2::new(0.0, 0.05 * r);
+        self.tri_top(
+            nose + Vec2::new(0.0, -0.1 * r),
+            nose + Vec2::new(0.0, 0.1 * r),
+            nose + Vec2::new(0.6 * r, 0.04 * r),
+            orange,
+        );
+        // Twig arms.
+        let brown = [0.36, 0.24, 0.15, 1.0];
+        for side in [-1.0f32, 1.0] {
+            let from = body.pos + Vec2::new(side * body.radius * 0.8, -0.2 * body.radius);
+            let to = from + Vec2::new(side * body.radius * 0.9, -body.radius * 0.6);
+            self.line_top(from, to, (0.07 * body.radius).max(1.2), brown);
+            let mid = from.lerp(to, 0.65);
+            self.line_top(
+                mid,
+                mid + Vec2::new(side * 0.2, -0.35) * body.radius,
+                (0.05 * body.radius).max(1.0),
+                brown,
+            );
+        }
+        // Top hat on proper (three-ball) snowmen.
+        if stack.len() >= 3 {
+            let black = [0.08, 0.08, 0.1, 1.0];
+            let brim_y = c.y - r * 0.78;
+            self.rect_top(c.x - r * 0.75, brim_y - r * 0.12, r * 1.5, r * 0.14, black);
+            self.rect_top(c.x - r * 0.48, brim_y - r * 0.85, r * 0.96, r * 0.75, black);
+            self.rect_top(
+                c.x - r * 0.48,
+                brim_y - r * 0.3,
+                r * 0.96,
+                r * 0.16,
+                [0.75, 0.12, 0.15, 1.0],
+            );
+        }
+    }
+
+    fn tri_top(&mut self, a: Vec2, b: Vec2, c: Vec2, color: [f32; 4]) {
+        for p in [a, b, c] {
+            self.mesh_top.push(MeshVertex {
+                pos: p.to_array(),
+                color,
+            });
+        }
+    }
+
+    fn line_top(&mut self, from: Vec2, to: Vec2, width: f32, color: [f32; 4]) {
+        let n = (to - from).perp().normalize_or_zero() * width * 0.5;
+        self.tri_top(from - n, from + n, to + n, color);
+        self.tri_top(from - n, to + n, to - n, color);
+    }
+
+    fn rect_top(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+        let (a, b, c, d) = (
+            Vec2::new(x, y),
+            Vec2::new(x + w, y),
+            Vec2::new(x + w, y + h),
+            Vec2::new(x, y + h),
+        );
+        self.tri_top(a, b, c, color);
+        self.tri_top(a, c, d, color);
     }
 
     fn add_drift(&mut self, d: &Drift) {

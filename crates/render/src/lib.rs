@@ -106,7 +106,9 @@ pub struct Renderer {
     mesh_buffer: GrowableBuffer,
     disc_buffer: GrowableBuffer,
     mesh_count: u32,
+    mesh_split: u32,
     disc_count: u32,
+    scratch: Vec<MeshVertex>,
 }
 
 impl Renderer {
@@ -209,7 +211,9 @@ impl Renderer {
             disc_pipeline,
             bind_layout,
             mesh_count: 0,
+            mesh_split: 0,
             disc_count: 0,
+            scratch: Vec::new(),
         }
     }
 
@@ -290,11 +294,15 @@ impl Renderer {
     /// Uploads this frame's geometry, shared by all targets.
     pub fn upload(&mut self, list: &DrawList) {
         let gpu = &self.gpu;
+        self.scratch.clear();
+        self.scratch.extend_from_slice(&list.mesh);
+        self.scratch.extend_from_slice(&list.mesh_top);
         self.mesh_buffer
-            .write(gpu, bytemuck::cast_slice(&list.mesh));
+            .write(gpu, bytemuck::cast_slice(&self.scratch));
         self.disc_buffer
             .write(gpu, bytemuck::cast_slice(&list.discs));
-        self.mesh_count = list.mesh.len() as u32;
+        self.mesh_count = self.scratch.len() as u32;
+        self.mesh_split = list.mesh.len() as u32;
         self.disc_count = list.discs.len() as u32;
     }
 
@@ -373,17 +381,22 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, bind_group, &[]);
-            if self.mesh_count > 0 {
-                let len = self.mesh_count as u64 * size_of::<MeshVertex>() as u64;
+            let mesh_len = self.mesh_count as u64 * size_of::<MeshVertex>() as u64;
+            if self.mesh_split > 0 {
                 pass.set_pipeline(&self.mesh_pipeline);
-                pass.set_vertex_buffer(0, self.mesh_buffer.slice(len));
-                pass.draw(0..self.mesh_count, 0..1);
+                pass.set_vertex_buffer(0, self.mesh_buffer.slice(mesh_len));
+                pass.draw(0..self.mesh_split, 0..1);
             }
             if self.disc_count > 0 {
                 let len = self.disc_count as u64 * size_of::<Disc>() as u64;
                 pass.set_pipeline(&self.disc_pipeline);
                 pass.set_vertex_buffer(0, self.disc_buffer.slice(len));
                 pass.draw(0..6, 0..self.disc_count);
+            }
+            if self.mesh_count > self.mesh_split {
+                pass.set_pipeline(&self.mesh_pipeline);
+                pass.set_vertex_buffer(0, self.mesh_buffer.slice(mesh_len));
+                pass.draw(self.mesh_split..self.mesh_count, 0..1);
             }
         }
         encoder.finish()

@@ -58,7 +58,7 @@ impl MacDesktop {
     }
 
     /// Cocoa rect (bottom-left origin) to desktop rect (top-left origin).
-    fn from_cocoa(&self, r: NSRect) -> Rect {
+    fn cocoa_to_desktop(&self, r: NSRect) -> Rect {
         Rect::new(
             r.origin.x as f32,
             (self.primary_height - r.origin.y - r.size.height) as f32,
@@ -67,7 +67,7 @@ impl MacDesktop {
         )
     }
 
-    fn to_cocoa(&self, r: Rect) -> NSRect {
+    fn desktop_to_cocoa(&self, r: Rect) -> NSRect {
         NSRect::new(
             NSPoint::new(r.x as f64, self.primary_height - r.y as f64 - r.h as f64),
             NSSize::new(r.w as f64, r.h as f64),
@@ -93,8 +93,8 @@ impl Desktop for MacDesktop {
         NSScreen::screens(self.mtm)
             .iter()
             .map(|s| Screen {
-                frame: self.from_cocoa(s.frame()),
-                visible: self.from_cocoa(s.visibleFrame()),
+                frame: self.cocoa_to_desktop(s.frame()),
+                visible: self.cocoa_to_desktop(s.visibleFrame()),
                 scale: s.backingScaleFactor() as f32,
             })
             .collect()
@@ -223,7 +223,7 @@ impl Desktop for MacDesktop {
         w.setOpaque(false);
         w.setHasShadow(false);
         w.setIgnoresMouseEvents(true);
-        w.setFrame_display(self.to_cocoa(frame), true);
+        w.setFrame_display(self.desktop_to_cocoa(frame), true);
         w.orderFrontRegardless();
         Ok(())
     }

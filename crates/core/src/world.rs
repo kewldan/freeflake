@@ -6,6 +6,7 @@ use crate::drift::{CHUNK_VOLUME, Drift, DriftField, PACKING, Spill};
 use crate::flake::{Flake, FlakeKind};
 use crate::scene::Scene;
 use crate::settings::Settings;
+use crate::snowball::{Snowball, Snowballs};
 
 /// Most snowflakes alive at once at full quality.
 const MAX_SNOW: usize = 4000;
@@ -30,6 +31,7 @@ pub struct World {
     last_cursor: Option<Vec2>,
     cursor_vel: Vec2,
     spills: Vec<Spill>,
+    balls: Snowballs,
 }
 
 impl World {
@@ -44,6 +46,7 @@ impl World {
             last_cursor: None,
             cursor_vel: Vec2::ZERO,
             spills: Vec::new(),
+            balls: Snowballs::default(),
         }
     }
 
@@ -57,6 +60,26 @@ impl World {
 
     pub fn flakes(&self) -> &[Flake] {
         &self.flakes
+    }
+
+    pub fn snowballs(&self) -> &[Snowball] {
+        self.balls.balls()
+    }
+
+    /// Stacks of snowball indices (bottom first) that form snowmen.
+    pub fn snowmen(&self) -> Vec<Vec<usize>> {
+        self.balls.snowmen()
+    }
+
+    /// Whether the overlay should take clicks at `p` while the grab modifier
+    /// is held.
+    pub fn wants_pointer(&self, p: Vec2) -> bool {
+        self.settings.accumulate && self.balls.wants_pointer(p, &self.drifts)
+    }
+
+    /// A snowball is being dragged.
+    pub fn is_holding(&self) -> bool {
+        self.balls.is_holding()
     }
 
     pub fn drifts(&self) -> &[Drift] {
@@ -84,6 +107,7 @@ impl World {
     /// Throws every pile off its surface.
     pub fn shovel(&mut self) {
         self.drifts.clear(&mut self.rng, &mut self.spills);
+        self.balls.clear(&mut self.spills);
         self.flush_spills();
     }
 
@@ -101,6 +125,11 @@ impl World {
                 .sync(scene, &self.settings, dt, &mut self.spills);
         } else {
             self.drifts.clear(&mut self.rng, &mut self.spills);
+            self.balls.clear(&mut self.spills);
+        }
+        if self.settings.accumulate {
+            self.balls
+                .update(dt, scene, self.cursor_vel, &mut self.drifts);
         }
         if !self.settings.paused {
             self.spawn(dt, scene);
@@ -234,11 +263,13 @@ impl World {
             }
             f.pos += f.vel * dt;
 
-            if accumulate && f.settles()
-                && let Some((di, col)) = drifts.find_landing(prev, f.pos) {
-                    drifts.deposit(di, col, f.volume());
-                    return false;
-                }
+            if accumulate
+                && f.settles()
+                && let Some((di, col)) = drifts.find_landing(prev, f.pos)
+            {
+                drifts.deposit(di, col, f.volume());
+                return false;
+            }
             f.pos.y < bounds.bottom() && f.pos.x > bounds.x && f.pos.x < bounds.right()
         });
     }

@@ -25,6 +25,7 @@ struct Overlay {
     window: Arc<Window>,
     target: Target,
     screen: Screen,
+    catches_clicks: bool,
 }
 
 pub struct App {
@@ -117,6 +118,7 @@ impl App {
                 window,
                 target,
                 screen,
+                catches_clicks: false,
             });
         }
         log::info!("{} overlay(s) ready", self.overlays.len());
@@ -148,6 +150,23 @@ impl App {
         }
     }
 
+    /// While the grab modifier is held over snow or a snowball, the overlay
+    /// under the cursor takes clicks so they do not reach the app below.
+    fn update_click_catching(&mut self) {
+        let catch_at = self.scene.cursor.filter(|&p| {
+            self.world.is_holding() || (self.scene.grab && self.world.wants_pointer(p))
+        });
+        for o in &mut self.overlays {
+            let catch = catch_at.is_some_and(|p| o.screen.frame.contains(p));
+            if catch != o.catches_clicks {
+                o.catches_clicks = catch;
+                if let Err(e) = self.desktop.set_click_through(o.window.as_ref(), !catch) {
+                    log::warn!("could not toggle click-through: {e:#}");
+                }
+            }
+        }
+    }
+
     fn tick(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let now = Instant::now();
         let dt = (now - self.last_tick).as_secs_f32();
@@ -175,6 +194,7 @@ impl App {
         self.scene.quality = self.desktop.quality();
 
         self.world.step(dt, &self.scene);
+        self.update_click_catching();
 
         if let Some(renderer) = &mut self.renderer {
             self.draw.build(&self.world);
