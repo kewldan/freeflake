@@ -1,7 +1,7 @@
 //! Converts the simulation state into GPU-ready geometry.
 
 use bytemuck::{Pod, Zeroable};
-use freeflake_core::{COLUMN_WIDTH, Drift, FlakeKind, Snowball, World};
+use freeflake_core::{COLUMN_WIDTH, Drift, FlakeKind, Rect, Snowball, World};
 use glam::Vec2;
 
 #[repr(C)]
@@ -49,13 +49,17 @@ impl DrawList {
         self.mesh.is_empty() && self.discs.is_empty() && self.mesh_top.is_empty()
     }
 
-    /// Rebuilds the list from the world.
-    pub fn build(&mut self, world: &World) {
+    /// Rebuilds the list from the world. Falling snow whose centre lies in
+    /// one of `hidden` is left out.
+    pub fn build(&mut self, world: &World, hidden: &[Rect]) {
         self.clear();
         for d in world.drifts() {
             self.add_drift(d);
         }
         for f in world.flakes() {
+            if hidden.iter().any(|r| r.contains(f.pos)) {
+                continue;
+            }
             let (outline, softness, color) = match f.kind {
                 FlakeKind::Snow => (0.6 * f.depth, 0.35, [1.0, 1.0, 1.0, f.alpha()]),
                 FlakeKind::Chunk => (0.8, 0.1, [0.95, 0.97, 1.0, f.alpha()]),
@@ -237,7 +241,6 @@ impl DrawList {
         }
         top.push((right, smooth(end - 1) * 0.55));
 
-        let base = d.y();
         // Rim first, one point taller, then the fill on top of it.
         for (lift, top_color, base_color) in [
             (1.0, SNOW_RIM, SNOW_RIM),
@@ -249,8 +252,10 @@ impl DrawList {
                 if h0 + h1 <= 0.0 {
                     continue;
                 }
-                let t0 = base - h0 - lift * (h0 > 0.05) as u8 as f32;
-                let t1 = base - h1 - lift * (h1 > 0.05) as u8 as f32;
+                // The surface under the snow follows rounded corners.
+                let (b0, b1) = (d.base_at(x0), d.base_at(x1));
+                let t0 = b0 - h0 - lift * (h0 > 0.05) as u8 as f32;
+                let t1 = b1 - h1 - lift * (h1 > 0.05) as u8 as f32;
                 let a = MeshVertex {
                     pos: [x0, t0],
                     color: top_color,
@@ -260,11 +265,11 @@ impl DrawList {
                     color: top_color,
                 };
                 let c = MeshVertex {
-                    pos: [x1, base],
+                    pos: [x1, b1],
                     color: base_color,
                 };
                 let e = MeshVertex {
-                    pos: [x0, base],
+                    pos: [x0, b0],
                     color: base_color,
                 };
                 self.mesh.extend_from_slice(&[a, b, c, a, c, e]);

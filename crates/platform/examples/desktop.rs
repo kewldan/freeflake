@@ -5,7 +5,10 @@
 fn main() -> anyhow::Result<()> {
     let mut desktop = freeflake_platform::desktop()?;
     for (i, s) in desktop.screens().iter().enumerate() {
-        println!("screen {i}: frame {:?} visible {:?} scale {}", s.frame, s.visible, s.scale);
+        println!(
+            "screen {i}: frame {:?} visible {:?} scale {}",
+            s.frame, s.visible, s.scale
+        );
     }
     // Give the watcher thread a moment to read the window list.
     std::thread::sleep(std::time::Duration::from_millis(300));

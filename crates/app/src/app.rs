@@ -79,6 +79,9 @@ pub struct App {
     screens: Vec<Screen>,
     scene: Scene,
     draw: DrawList,
+    /// Areas where falling snow is hidden (windows, when snow over windows
+    /// is off).
+    hidden: Vec<freeflake_core::Rect>,
     tray: Option<Tray>,
     tree: Option<TreeWindow>,
     settings_window: Option<SettingsWindow>,
@@ -118,6 +121,7 @@ impl App {
             screens: Vec::new(),
             scene: Scene::default(),
             draw: DrawList::default(),
+            hidden: Vec::new(),
             tray: None,
             tree: None,
             settings_window: None,
@@ -346,7 +350,17 @@ impl App {
         self.update_click_catching();
 
         if let Some(renderer) = &mut self.renderer {
-            self.draw.build(&self.world);
+            self.hidden.clear();
+            if !self.settings.snow_over_windows {
+                self.hidden.extend(
+                    self.scene
+                        .obstacles
+                        .iter()
+                        .filter(|o| !crate::tree_window::is_tree_ledge(o.id))
+                        .map(|o| o.rect),
+                );
+            }
+            self.draw.build(&self.world, &self.hidden);
             for o in &mut self.overlays {
                 o.target.set_viewport(o.screen.frame, o.screen.scale);
                 renderer.render(&mut o.target, &self.draw);

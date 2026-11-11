@@ -228,7 +228,7 @@ impl Snowballs {
                     Support::Surface { id, dx } => drifts.get(id).and_then(|d| {
                         let x = d.x() + dx;
                         let col = d.column_at(x)?;
-                        d.exposed()[col].then(|| Vec2::new(x, d.y() - r * 0.97))
+                        d.exposed()[col].then(|| Vec2::new(x, d.base_y(col) - r * 0.97))
                     }),
                     Support::Ball { id, dx } => self.index(id).and_then(|j| {
                         let base = self.balls[j];
@@ -319,6 +319,7 @@ mod tests {
                 id: 1,
                 rect: Rect::new(100.0, 400.0, 600.0, 300.0),
                 holds_snow: true,
+                corner_radius: 0.0,
             }],
             ..Scene::default()
         }

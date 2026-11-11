@@ -21,6 +21,8 @@ pub struct Obstacle {
     pub rect: Rect,
     /// Whether snow settles on the top edge.
     pub holds_snow: bool,
+    /// Radius of the rounded top corners, in points.
+    pub corner_radius: f32,
 }
 
 /// Everything the simulation needs to know about the desktop for one step.

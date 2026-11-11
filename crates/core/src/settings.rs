@@ -67,6 +67,9 @@ pub struct Settings {
     pub paused: bool,
     /// Let snow pile up on windows, the Dock/taskbar and the screen bottom.
     pub accumulate: bool,
+    /// Show falling snow in front of windows. When off, flakes are only
+    /// visible over the desktop; piles and snowmen stay.
+    pub snow_over_windows: bool,
     /// Brush snow off with the cursor.
     pub mitten: bool,
     /// Slowly melt piles so they never cover everything.
@@ -90,6 +93,7 @@ impl Default for Settings {
             wind: Vec2::new(0.15, 0.0),
             paused: false,
             accumulate: true,
+            snow_over_windows: true,
             mitten: true,
             melt: true,
             max_window_drift: 28.0,

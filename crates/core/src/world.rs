@@ -326,6 +326,7 @@ mod tests {
                 id: 7,
                 rect: Rect::new(200.0, 300.0, 600.0, 300.0),
                 holds_snow: true,
+                corner_radius: 0.0,
             }],
             ..Scene::default()
         }

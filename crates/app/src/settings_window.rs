@@ -192,6 +192,7 @@ fn contents(ui: &mut egui::Ui, s: &mut Settings, autostart: bool, requests: &mut
         }
     });
     ui.checkbox(&mut s.paused, t(S::Pause));
+    ui.checkbox(&mut s.snow_over_windows, t(S::SnowOverWindows));
 
     ui.separator();
     ui.heading(t(S::Wind));

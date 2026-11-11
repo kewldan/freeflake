@@ -280,6 +280,7 @@ fn read_windows(
                 h as f32 / scale,
             ),
             holds_snow: true,
+            corner_radius: 0.0,
         });
     }
     Ok(out)

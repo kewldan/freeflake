@@ -19,6 +19,11 @@ const IDLE_FRAME: Duration = Duration::from_millis(50);
 /// Obstacle ids for the tree's branches; far above any real window number.
 const LEDGE_ID_BASE: u64 = 1 << 48;
 
+/// Whether an obstacle id is one of the tree's branches.
+pub fn is_tree_ledge(id: u64) -> bool {
+    id >= LEDGE_ID_BASE
+}
+
 pub struct TreeWindow {
     window: Arc<Window>,
     target: Target,
@@ -104,6 +109,7 @@ impl TreeWindow {
                 id: LEDGE_ID_BASE + i as u64,
                 rect: Rect::new(r.x + self.frame.x, r.y + self.frame.y, r.w, r.h),
                 holds_snow: true,
+                corner_radius: 0.0,
             })
     }
 

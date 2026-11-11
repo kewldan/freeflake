@@ -49,6 +49,7 @@ strings! {
     WindRight => "Вправо", "To the right";
     WindRightStrong => "Сильно вправо", "Strong to the right";
     Accumulate => "Сугробы", "Snow piles";
+    SnowOverWindows => "Снег поверх окон", "Snow over windows";
     Mitten => "Варежка (смахивать курсором)", "Mitten (brush with cursor)";
     Shovel => "Лопата: убрать весь снег", "Shovel: clear all snow";
     Tree => "Ёлка", "Christmas tree";

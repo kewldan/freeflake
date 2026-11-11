@@ -10,12 +10,12 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use freeflake_core::{Obstacle, Rect};
 use glam::Vec2;
-use objc2::{AnyThread, MainThreadMarker};
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::AnyObject;
+use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
-    NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSWorkspace, NSScreen, NSScreenSaverWindowLevel, NSView, NSWindow,
-    NSWindowCollectionBehavior,
+    NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSScreen,
+    NSScreenSaverWindowLevel, NSView, NSWindow, NSWindowCollectionBehavior, NSWorkspace,
 };
 use objc2_core_foundation::CFString;
 use objc2_core_graphics::{
@@ -32,6 +32,8 @@ use crate::{Desktop, Layer, Pointer, Screen};
 
 /// Obstacle id for the Dock, which has no window of its own size.
 const DOCK_ID: u64 = 1 << 47;
+/// The Dock's rounded corners.
+const DOCK_RADIUS: f32 = 18.0;
 /// Smallest window that counts as an obstacle.
 const MIN_SIZE: f64 = 24.0;
 /// Window list polling while something moves, and when all is still.
@@ -165,8 +167,23 @@ fn cf_key(k: &CFString) -> &NSString {
     unsafe { &*(k as *const CFString as *const NSString) }
 }
 
+/// Corner radius of ordinary windows: macOS 26 rounds them much more than
+/// earlier versions. The window list does not report it per window.
+fn window_radius() -> f32 {
+    if NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion
+        >= 26
+    {
+        16.0
+    } else {
+        10.0
+    }
+}
+
 fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
     out.clear();
+    let radius = window_radius();
     let options =
         CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements;
     let Some(list) = CGWindowListCopyWindowInfo(options, kCGNullWindowID) else {
@@ -235,6 +252,7 @@ fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
             id,
             rect: Rect::new(x as f32, y as f32, w as f32, h as f32),
             holds_snow,
+            corner_radius: if holds_snow { radius } else { 0.0 },
         });
     }
 }
@@ -262,6 +280,7 @@ impl Desktop for MacDesktop {
                 id: DOCK_ID,
                 rect,
                 holds_snow: true,
+                corner_radius: DOCK_RADIUS,
             });
         }
         let current = self.windows.lock().unwrap_or_else(|e| e.into_inner());
@@ -354,7 +373,8 @@ impl DockContents {
 /// from the Dock's contents. Returns None for hidden or side Docks.
 fn estimate_dock(screens: &[Screen]) -> Option<Rect> {
     let defaults = NSUserDefaults::alloc();
-    let defaults = NSUserDefaults::initWithSuiteName(defaults, Some(&NSString::from_str("com.apple.dock")))?;
+    let defaults =
+        NSUserDefaults::initWithSuiteName(defaults, Some(&NSString::from_str("com.apple.dock")))?;
     let key = |k: &str| NSString::from_str(k);
     let orientation = defaults
         .stringForKey(&key("orientation"))

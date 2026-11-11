@@ -56,21 +56,25 @@ fn main() -> Result<()> {
             id: 100,
             rect: dock,
             holds_snow: true,
+            corner_radius: 16.0,
         },
         Obstacle {
             id: 2,
             rect: windows[1].1,
             holds_snow: true,
+            corner_radius: 16.0,
         },
         Obstacle {
             id: 3,
             rect: windows[2].1,
             holds_snow: true,
+            corner_radius: 16.0,
         },
         Obstacle {
             id: 1,
             rect: windows[0].1,
             holds_snow: true,
+            corner_radius: 16.0,
         },
     ];
     obstacles.dedup_by_key(|o| o.id);
@@ -133,7 +137,7 @@ fn main() -> Result<()> {
 
     let mut draw = DrawList::default();
     let t = std::time::Instant::now();
-    draw.build(&world);
+    draw.build(&world, &[]);
     let build = t.elapsed();
     let mut background = Vec::new();
     for id in [1, 3, 2] {
@@ -175,7 +179,7 @@ fn main() -> Result<()> {
             for _ in 0..2 {
                 world.step(1.0 / 60.0, &scene);
             }
-            draw.build(&world);
+            draw.build(&world, &[]);
             draw.mesh.splice(0..0, background.iter().copied());
             let image = renderer.render_offscreen(&draw, screen, 1.0, [0.18, 0.33, 0.52])?;
             let file = BufWriter::new(File::create(format!("{dir}/{i:04}.png"))?);
@@ -193,6 +197,6 @@ fn main() -> Result<()> {
 /// background quads can be told apart.
 fn drift_len(world: &World) -> usize {
     let mut list = DrawList::default();
-    list.build(world);
+    list.build(world, &[]);
     list.mesh.len()
 }

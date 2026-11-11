@@ -42,6 +42,8 @@ const SLOW_POLL: Duration = Duration::from_millis(66);
 const FAST_LINGER: Duration = Duration::from_millis(600);
 /// Smallest window that counts as an obstacle, in pixels.
 const MIN_SIZE: i32 = 24;
+/// Windows 11 rounds window corners by 8 pixels.
+const WINDOW_RADIUS: f32 = 8.0;
 /// Taskbars hold snow like the Dock.
 const TASKBAR_CLASSES: [&str; 2] = ["Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
 
@@ -165,6 +167,7 @@ unsafe extern "system" fn enum_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
             id: hwnd.0 as usize as u64,
             rect: rect_to_points(r, state.scale),
             holds_snow: true,
+            corner_radius: WINDOW_RADIUS,
         });
     }
     BOOL(1)

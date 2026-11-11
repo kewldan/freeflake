@@ -32,6 +32,7 @@ pub struct Tray {
     intensity: Vec<(Intensity, CheckMenuItem)>,
     wind: Vec<(f32, CheckMenuItem)>,
     accumulate: CheckMenuItem,
+    over_windows: CheckMenuItem,
     mitten: CheckMenuItem,
     tree: CheckMenuItem,
     shovel: MenuId,
@@ -70,6 +71,12 @@ impl Tray {
         }
         let accumulate = CheckMenuItem::new(t(S::Accumulate), true, settings.accumulate, None);
         let mitten = CheckMenuItem::new(t(S::Mitten), true, settings.mitten, None);
+        let over_windows = CheckMenuItem::new(
+            t(S::SnowOverWindows),
+            true,
+            settings.snow_over_windows,
+            None,
+        );
         let tree = CheckMenuItem::new(t(S::Tree), true, settings.show_tree, None);
         let shovel = MenuItem::new(t(S::Shovel), true, None);
         let settings_item = MenuItem::new(t(S::Settings), true, None);
@@ -81,6 +88,7 @@ impl Tray {
             &PredefinedMenuItem::separator(),
             &snowfall,
             &wind_menu,
+            &over_windows,
             &accumulate,
             &mitten,
             &shovel,
@@ -108,6 +116,7 @@ impl Tray {
             intensity,
             wind,
             accumulate,
+            over_windows,
             mitten,
             tree,
             shovel: shovel.id().clone(),
@@ -133,6 +142,7 @@ impl Tray {
             item.set_checked(Some(*x) == nearest);
         }
         self.accumulate.set_checked(settings.accumulate);
+        self.over_windows.set_checked(settings.snow_over_windows);
         self.mitten.set_checked(settings.mitten);
         self.tree.set_checked(settings.show_tree);
     }
@@ -145,6 +155,8 @@ impl Tray {
             let mut s = settings.clone();
             if id == self.pause.id() {
                 s.paused = !s.paused;
+            } else if id == self.over_windows.id() {
+                s.snow_over_windows = !s.snow_over_windows;
             } else if id == self.accumulate.id() {
                 s.accumulate = !s.accumulate;
             } else if id == self.mitten.id() {

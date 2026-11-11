@@ -21,6 +21,10 @@ pub const CHUNK_VOLUME: f32 = 9.0;
 const REPOSE_STEP: f32 = 1.6;
 /// How fast slopes relax, per second.
 const RELAX_RATE: f32 = 10.0;
+/// Base slope (rise over run) beyond which snow cannot stay: about 40°.
+const MAX_HOLD_SLOPE: f32 = 0.85;
+/// What a too-steep column still holds, in points.
+const STEEP_HOLD: f32 = 0.8;
 /// Height an edge column holds before snow starts sliding off.
 const EDGE_HOLD: f32 = 5.0;
 /// Speed of a window (points per second) above which snow is shaken off.
@@ -50,6 +54,8 @@ pub struct Drift {
     heights: Vec<f32>,
     exposed: Vec<bool>,
     max_height: f32,
+    /// Rounded corners: the base line curves down by this much at the ends.
+    radius: f32,
     /// Number of obstacles in front of this surface.
     front: usize,
     seen: bool,
@@ -67,6 +73,7 @@ impl Drift {
             heights: vec![0.0; n],
             exposed: vec![false; n],
             max_height,
+            radius: 0.0,
             front: 0,
             seen: true,
             edge_volume: [0.0; 2],
@@ -113,9 +120,26 @@ impl Drift {
         self.x + (i as f32 + 0.5) * COLUMN_WIDTH
     }
 
+    /// Y of the surface under the snow at `x`: flat in the middle, curving
+    /// down along the rounded corners.
+    pub fn base_at(&self, x: f32) -> f32 {
+        let r = self.radius.min(self.width() / 2.0);
+        let edge = (x - self.x).min(self.right() - x);
+        if r <= 0.0 || edge >= r {
+            return self.y;
+        }
+        let t = r - edge.max(0.0);
+        self.y + r - (r * r - t * t).max(0.0).sqrt()
+    }
+
+    /// Y of the surface under the snow in column `i`.
+    pub fn base_y(&self, i: usize) -> f32 {
+        self.base_at(self.column_center(i))
+    }
+
     /// Y coordinate of the snow surface in column `i`.
     pub fn surface_y(&self, i: usize) -> f32 {
-        self.y - self.heights[i]
+        self.base_y(i) - self.heights[i]
     }
 
     /// Total snow volume, in point².
@@ -151,7 +175,7 @@ impl Drift {
         for i in 0..self.heights.len() {
             let h = std::mem::take(&mut self.heights[i]);
             if self.exposed[i] && h > 0.0 {
-                let pos = Vec2::new(self.column_center(i), self.y - h * 0.5);
+                let pos = Vec2::new(self.column_center(i), self.base_y(i) - h * 0.5);
                 acc.add(pos, vel, h * COLUMN_WIDTH, spills);
             }
         }
@@ -184,7 +208,7 @@ impl Drift {
             for (i, &h) in self.heights.iter().enumerate() {
                 let j = i as isize - offset;
                 if (j < 0 || j >= n as isize) && h > 0.0 && self.exposed[i] {
-                    let pos = Vec2::new(self.column_center(i), self.y - h * 0.5);
+                    let pos = Vec2::new(self.column_center(i), self.base_y(i) - h * 0.5);
                     lost.add(pos, Vec2::ZERO, h * COLUMN_WIDTH, spills);
                 }
             }
@@ -249,16 +273,38 @@ impl Drift {
         let k = (RELAX_RATE * dt).min(1.0) * 0.5;
         for _ in 0..2 {
             for i in 0..n - 1 {
-                let diff = self.heights[i] - self.heights[i + 1];
+                // Compare snow surfaces, so snow slides down rounded corners.
+                let diff = self.surface_y(i + 1) - self.surface_y(i);
                 if diff.abs() > REPOSE_STEP {
-                    let t = (diff.abs() - REPOSE_STEP) * k * diff.signum();
-                    self.heights[i] -= t;
-                    self.heights[i + 1] += t;
+                    let (from, to) = if diff > 0.0 { (i, i + 1) } else { (i + 1, i) };
+                    let t = ((diff.abs() - REPOSE_STEP) * k).min(self.heights[from]);
+                    self.heights[from] -= t;
+                    self.heights[to] += t;
                 }
             }
         }
         for h in &mut self.heights {
             *h = h.min(self.max_height);
+        }
+        // Steep parts of rounded corners shed snow towards the nearer end.
+        if self.radius > 0.0 {
+            let rate = (4.0 * dt).min(1.0);
+            for i in 0..n {
+                let x = self.column_center(i);
+                let slope = (self.base_at(x + 1.0) - self.base_at(x - 1.0)).abs() / 2.0;
+                if slope <= MAX_HOLD_SLOPE || self.heights[i] <= STEEP_HOLD {
+                    continue;
+                }
+                let excess = (self.heights[i] - STEEP_HOLD) * rate;
+                self.heights[i] -= excess;
+                let left = i < n / 2;
+                match (left, i) {
+                    (true, 0) => self.edge_volume[0] += excess * COLUMN_WIDTH,
+                    (true, _) => self.heights[i - 1] += excess,
+                    (false, _) if i + 1 == n => self.edge_volume[1] += excess * COLUMN_WIDTH,
+                    (false, _) => self.heights[i + 1] += excess,
+                }
+            }
         }
         // Snow overhanging the ends slides off.
         for side in 0..2 {
@@ -281,7 +327,7 @@ impl Drift {
                     self.right() + 1.5
                 };
                 spills.push(Spill {
-                    pos: Vec2::new(x, self.y - self.heights[i]),
+                    pos: Vec2::new(x, self.base_y(i) - self.heights[i]),
                     vel: Vec2::new(dir * rng.f32() * 25.0, 10.0),
                     volume: CHUNK_VOLUME,
                 });
@@ -362,6 +408,9 @@ impl DriftField {
                     dt,
                     spills,
                 );
+                if let Some(d) = self.drifts.iter_mut().find(|d| d.id == id) {
+                    d.radius = o.corner_radius;
+                }
             }
         }
         let front = scene.obstacles.len();
@@ -422,7 +471,7 @@ impl DriftField {
                 let h = d.heights[i] * 0.5;
                 if h > 0.0 && d.exposed[i] {
                     d.heights[i] -= h;
-                    let pos = Vec2::new(d.column_center(i), d.y - d.heights[i] - h * 0.5);
+                    let pos = Vec2::new(d.column_center(i), d.surface_y(i) - h * 0.5);
                     acc.add(pos + delta, fling, h * COLUMN_WIDTH, spills);
                 }
             }
@@ -446,7 +495,7 @@ impl DriftField {
         }
         let mut best: Option<(usize, usize, f32)> = None;
         for (di, d) in self.drifts.iter().enumerate() {
-            if to.y < d.y - d.max_height - 1.0 || from.y > d.y {
+            if to.y < d.y - d.max_height - 1.0 || from.y > d.y + d.radius {
                 continue;
             }
             let Some(col) = d.column_at(to.x) else {
@@ -493,7 +542,7 @@ impl DriftField {
                 d.exposed[c]
                     && d.heights[c] > 1.0
                     && p.y >= d.surface_y(c) - slack
-                    && p.y <= d.y + 2.0
+                    && p.y <= d.base_y(c) + 2.0
             })
         })
     }
@@ -503,7 +552,7 @@ impl DriftField {
     pub fn take_snow(&mut self, center: Vec2, radius: f32, max_volume: f32) -> f32 {
         let mut taken = 0.0;
         for d in &mut self.drifts {
-            if center.y + radius < d.y - d.max_height || center.y - radius > d.y {
+            if center.y + radius < d.y - d.max_height || center.y - radius > d.y + d.radius {
                 continue;
             }
             let first = ((center.x - radius - d.x) / COLUMN_WIDTH).floor().max(0.0) as usize;
@@ -517,7 +566,7 @@ impl DriftField {
                 let half = (radius * radius - dx * dx).max(0.0).sqrt();
                 // Part of the column that lies inside the disc.
                 let top = d.surface_y(i).max(center.y - half);
-                let bottom = d.y.min(center.y + half);
+                let bottom = d.base_y(i).min(center.y + half);
                 let h = (bottom - top).max(0.0);
                 let v = (h * COLUMN_WIDTH).min(max_volume - taken);
                 if v > 0.0 {
@@ -539,7 +588,7 @@ impl DriftField {
         spills: &mut Vec<Spill>,
     ) {
         for d in &mut self.drifts {
-            if cursor.y < d.y - d.max_height - radius || cursor.y > d.y + radius * 0.5 {
+            if cursor.y < d.y - d.max_height - radius || cursor.y > d.y + d.radius + radius * 0.5 {
                 continue;
             }
             if cursor.x < d.x - radius || cursor.x > d.right() + radius {
@@ -554,12 +603,13 @@ impl DriftField {
                 if h < 0.05 || !d.exposed[i] {
                     continue;
                 }
-                let top = d.y - h;
+                let base = d.base_y(i);
+                let top = base - h;
                 let dx = d.column_center(i) - cursor.x;
                 let dy = if cursor.y < top {
                     top - cursor.y
-                } else if cursor.y > d.y {
-                    cursor.y - d.y
+                } else if cursor.y > base {
+                    cursor.y - base
                 } else {
                     0.0
                 };
@@ -609,6 +659,7 @@ mod tests {
             id,
             rect: Rect::new(x, y, w, h),
             holds_snow: true,
+            corner_radius: 0.0,
         }
     }
 
@@ -753,6 +804,29 @@ mod tests {
         let spilled: f32 = spills.iter().map(|s| s.volume).sum();
         assert!(after < before);
         assert!((before - after - spilled).abs() < 0.1);
+    }
+
+    #[test]
+    fn snow_slides_off_rounded_corners() {
+        let mut scene = scene_with(vec![window(1, 100.0, 200.0, 300.0, 200.0)]);
+        scene.obstacles[0].corner_radius = 16.0;
+        let mut f = field_for(&scene);
+        let d = &f.drifts()[0];
+        assert_eq!(d.base_y(50), 200.0);
+        assert!(d.base_y(0) > 208.0, "{}", d.base_y(0));
+        for i in 0..100 {
+            f.deposit(0, i, 12.0);
+        }
+        let mut rng = fastrand::Rng::with_seed(1);
+        let mut spills = Vec::new();
+        for _ in 0..600 {
+            f.relax(1.0 / 60.0, false, &mut rng, &mut spills);
+        }
+        let d = &f.drifts()[0];
+        // The curve is steeper than the angle of repose: the corner columns
+        // lose most of their snow, the flat middle keeps it.
+        assert!(d.heights()[0] < d.heights()[50]);
+        assert!(!spills.is_empty());
     }
 
     #[test]
