@@ -5,6 +5,7 @@
 //! once per frame with [`Renderer::upload`] and then drawn into each target.
 
 mod draw_list;
+mod tree;
 
 use std::sync::Arc;
 
@@ -77,6 +78,7 @@ pub struct Target {
     scale: f32,
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    geometry: Geometry,
     dirty: bool,
     /// Whether the last presented frame was empty; lets idle frames be skipped.
     blank: bool,
@@ -103,12 +105,46 @@ pub struct Renderer {
     mesh_pipeline: wgpu::RenderPipeline,
     disc_pipeline: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
+}
+
+/// Geometry uploaded for one target.
+struct Geometry {
     mesh_buffer: GrowableBuffer,
     disc_buffer: GrowableBuffer,
     mesh_count: u32,
     mesh_split: u32,
     disc_count: u32,
     scratch: Vec<MeshVertex>,
+}
+
+impl Geometry {
+    fn new(device: &wgpu::Device) -> Self {
+        Self {
+            mesh_buffer: GrowableBuffer::new(device, "mesh", 64 * 1024),
+            disc_buffer: GrowableBuffer::new(device, "discs", 64 * 1024),
+            mesh_count: 0,
+            mesh_split: 0,
+            disc_count: 0,
+            scratch: Vec::new(),
+        }
+    }
+
+    fn upload(&mut self, gpu: &Gpu, list: &DrawList) {
+        self.scratch.clear();
+        self.scratch.extend_from_slice(&list.mesh);
+        self.scratch.extend_from_slice(&list.mesh_top);
+        self.mesh_buffer
+            .write(gpu, bytemuck::cast_slice(&self.scratch));
+        self.disc_buffer
+            .write(gpu, bytemuck::cast_slice(&list.discs));
+        self.mesh_count = self.scratch.len() as u32;
+        self.mesh_split = list.mesh.len() as u32;
+        self.disc_count = list.discs.len() as u32;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.mesh_count == 0 && self.disc_count == 0
+    }
 }
 
 impl Renderer {
@@ -203,17 +239,11 @@ impl Renderer {
             })],
         );
         Self {
-            mesh_buffer: GrowableBuffer::new(device, "mesh", 64 * 1024),
-            disc_buffer: GrowableBuffer::new(device, "discs", 64 * 1024),
             gpu,
             format,
             mesh_pipeline,
             disc_pipeline,
             bind_layout,
-            mesh_count: 0,
-            mesh_split: 0,
-            disc_count: 0,
-            scratch: Vec::new(),
         }
     }
 
@@ -286,29 +316,19 @@ impl Renderer {
             scale,
             uniform,
             bind_group,
+            geometry: Geometry::new(&self.gpu.device),
             dirty: true,
             blank: false,
         })
     }
 
-    /// Uploads this frame's geometry, shared by all targets.
-    pub fn upload(&mut self, list: &DrawList) {
-        let gpu = &self.gpu;
-        self.scratch.clear();
-        self.scratch.extend_from_slice(&list.mesh);
-        self.scratch.extend_from_slice(&list.mesh_top);
-        self.mesh_buffer
-            .write(gpu, bytemuck::cast_slice(&self.scratch));
-        self.disc_buffer
-            .write(gpu, bytemuck::cast_slice(&list.discs));
-        self.mesh_count = self.scratch.len() as u32;
-        self.mesh_split = list.mesh.len() as u32;
-        self.disc_count = list.discs.len() as u32;
-    }
-
-    /// Draws the uploaded geometry into `target` and presents it.
-    pub fn render(&self, target: &mut Target) {
-        let empty = self.mesh_count == 0 && self.disc_count == 0;
+    /// Draws `list` into `target` and presents it.
+    pub fn render(&self, target: &mut Target, list: &DrawList) {
+        if list.is_empty() && target.blank && !target.dirty {
+            return;
+        }
+        target.geometry.upload(&self.gpu, list);
+        let empty = target.geometry.is_empty();
         if empty && target.blank && !target.dirty {
             return;
         }
@@ -344,7 +364,12 @@ impl Renderer {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let commands = self.encode(&view, &target.bind_group, wgpu::Color::TRANSPARENT);
+        let commands = self.encode(
+            &view,
+            &target.bind_group,
+            &target.geometry,
+            wgpu::Color::TRANSPARENT,
+        );
         self.gpu.queue.submit([commands]);
         self.gpu.queue.present(frame);
         target.blank = empty;
@@ -355,6 +380,7 @@ impl Renderer {
         &self,
         view: &wgpu::TextureView,
         bind_group: &wgpu::BindGroup,
+        geo: &Geometry,
         clear: wgpu::Color,
     ) -> wgpu::CommandBuffer {
         let mut encoder = self
@@ -381,22 +407,22 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, bind_group, &[]);
-            let mesh_len = self.mesh_count as u64 * size_of::<MeshVertex>() as u64;
-            if self.mesh_split > 0 {
+            let mesh_len = geo.mesh_count as u64 * size_of::<MeshVertex>() as u64;
+            if geo.mesh_split > 0 {
                 pass.set_pipeline(&self.mesh_pipeline);
-                pass.set_vertex_buffer(0, self.mesh_buffer.slice(mesh_len));
-                pass.draw(0..self.mesh_split, 0..1);
+                pass.set_vertex_buffer(0, geo.mesh_buffer.slice(mesh_len));
+                pass.draw(0..geo.mesh_split, 0..1);
             }
-            if self.disc_count > 0 {
-                let len = self.disc_count as u64 * size_of::<Disc>() as u64;
+            if geo.disc_count > 0 {
+                let len = geo.disc_count as u64 * size_of::<Disc>() as u64;
                 pass.set_pipeline(&self.disc_pipeline);
-                pass.set_vertex_buffer(0, self.disc_buffer.slice(len));
-                pass.draw(0..6, 0..self.disc_count);
+                pass.set_vertex_buffer(0, geo.disc_buffer.slice(len));
+                pass.draw(0..6, 0..geo.disc_count);
             }
-            if self.mesh_count > self.mesh_split {
+            if geo.mesh_count > geo.mesh_split {
                 pass.set_pipeline(&self.mesh_pipeline);
-                pass.set_vertex_buffer(0, self.mesh_buffer.slice(mesh_len));
-                pass.draw(self.mesh_split..self.mesh_count, 0..1);
+                pass.set_vertex_buffer(0, geo.mesh_buffer.slice(mesh_len));
+                pass.draw(geo.mesh_split..geo.mesh_count, 0..1);
             }
         }
         encoder.finish()
@@ -432,10 +458,11 @@ impl Renderer {
         (buffer, bind_group)
     }
 
-    /// Renders the uploaded geometry over `background` into an RGBA8 image.
-    /// Used for snapshot tests and screenshots without a display.
+    /// Renders `list` over `background` into an RGBA8 image. Used for
+    /// snapshot tests and screenshots without a display.
     pub fn render_offscreen(
         &self,
+        list: &DrawList,
         viewport: Rect,
         scale: f32,
         background: [f64; 3],
@@ -459,7 +486,9 @@ impl Renderer {
         let view = texture.create_view(&Default::default());
         let (_uniform, bind_group) = self.viewport_bind_group(viewport, scale);
         let [r, g, b] = background;
-        let draw = self.encode(&view, &bind_group, wgpu::Color { r, g, b, a: 1.0 });
+        let mut geo = Geometry::new(&self.gpu.device);
+        geo.upload(&self.gpu, list);
+        let draw = self.encode(&view, &bind_group, &geo, wgpu::Color { r, g, b, a: 1.0 });
 
         let row = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;

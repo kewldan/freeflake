@@ -19,3 +19,5 @@ wgpu = "30"
 
 [dev-dependencies]
 png = "0.18"
+chrono.workspace = true
+fastrand.workspace = true

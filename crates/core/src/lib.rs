@@ -4,6 +4,7 @@
 //! [`World`] advances snowfall, piles, snowballs and the advent tree, and the
 //! renderer draws whatever the world exposes.
 
+pub mod advent;
 pub mod drift;
 pub mod flake;
 pub mod geom;

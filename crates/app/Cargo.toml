@@ -10,6 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 directories.workspace = true
 env_logger.workspace = true
 freeflake-core.workspace = true
@@ -18,6 +19,7 @@ freeflake-render.workspace = true
 glam.workspace = true
 log.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sys-locale = "0.3"
 toml.workspace = true
 tray-icon = "0.26"

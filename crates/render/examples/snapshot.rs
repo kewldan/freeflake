@@ -149,9 +149,8 @@ fn main() -> Result<()> {
     draw.mesh.splice(0..0, background);
 
     let gpu = Gpu::headless()?;
-    let mut renderer = Renderer::with_format(gpu, wgpu::TextureFormat::Rgba8Unorm);
-    renderer.upload(&draw);
-    let image = renderer.render_offscreen(screen, 2.0, [0.18, 0.33, 0.52])?;
+    let renderer = Renderer::with_format(gpu, wgpu::TextureFormat::Rgba8Unorm);
+    let image = renderer.render_offscreen(&draw, screen, 2.0, [0.18, 0.33, 0.52])?;
 
     let file = BufWriter::new(File::create(out)?);
     let mut enc = png::Encoder::new(file, image.width, image.height);

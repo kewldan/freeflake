@@ -6,6 +6,7 @@ mod app;
 mod config;
 mod i18n;
 mod tray;
+mod tree_window;
 
 use anyhow::Result;
 use winit::event_loop::EventLoop;

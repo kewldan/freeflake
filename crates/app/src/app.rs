@@ -15,11 +15,51 @@ use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::config;
 use crate::tray::{Action, Tray};
+use crate::tree_window::TreeWindow;
 
 /// How often to look for added or removed screens.
 const SCREEN_POLL: Duration = Duration::from_secs(2);
 /// Frame interval when nothing is moving.
 const IDLE_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Per-phase frame timings, logged when `FREEFLAKE_PROFILE` is set.
+#[derive(Default)]
+struct Profile {
+    enabled: bool,
+    frames: u32,
+    phases: [f64; 5],
+    since: Option<Instant>,
+}
+
+impl Profile {
+    const NAMES: [&str; 5] = ["desktop", "tree", "step", "overlay", "tree-render"];
+
+    fn add(&mut self, phase: usize, from: Instant) -> Instant {
+        let now = Instant::now();
+        self.phases[phase] += (now - from).as_secs_f64();
+        now
+    }
+
+    fn frame(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        self.frames += 1;
+        let since = *self.since.get_or_insert_with(Instant::now);
+        if since.elapsed() > Duration::from_secs(5) {
+            let report: Vec<String> = Self::NAMES
+                .iter()
+                .zip(self.phases)
+                .map(|(n, t)| format!("{n} {:.2}ms", t * 1000.0 / self.frames as f64))
+                .collect();
+            log::info!("{} fps, {}", self.frames / 5, report.join(", "));
+            *self = Self {
+                enabled: true,
+                ..Self::default()
+            };
+        }
+    }
+}
 
 struct Overlay {
     window: Arc<Window>,
@@ -39,6 +79,9 @@ pub struct App {
     scene: Scene,
     draw: DrawList,
     tray: Option<Tray>,
+    tree: Option<TreeWindow>,
+    date_checked: Instant,
+    profile: Profile,
     last_tick: Instant,
     next_frame: Instant,
     screens_checked: Instant,
@@ -66,6 +109,12 @@ impl App {
             scene: Scene::default(),
             draw: DrawList::default(),
             tray: None,
+            tree: None,
+            date_checked: now,
+            profile: Profile {
+                enabled: std::env::var_os("FREEFLAKE_PROFILE").is_some(),
+                ..Profile::default()
+            },
             last_tick: now,
             next_frame: now,
             screens_checked: now,
@@ -121,6 +170,23 @@ impl App {
                 catches_clicks: false,
             });
         }
+        let state = self
+            .tree
+            .take()
+            .map(|t| t.state().clone())
+            .unwrap_or_else(config::load_advent);
+        if let (Some(renderer), Some(primary)) = (&self.renderer, self.screens.first()) {
+            let mut tree = TreeWindow::create(
+                event_loop,
+                self.desktop.as_mut(),
+                &self.instance,
+                renderer,
+                primary,
+                state,
+            )?;
+            tree.set_visible(self.settings.show_tree);
+            self.tree = Some(tree);
+        }
         log::info!("{} overlay(s) ready", self.overlays.len());
         Ok(())
     }
@@ -131,6 +197,9 @@ impl App {
         }
         self.settings = settings.clone();
         self.world.set_settings(settings);
+        if let Some(tree) = &mut self.tree {
+            tree.set_visible(self.settings.show_tree);
+        }
         if let Err(e) = config::save_settings(&self.settings) {
             log::warn!("could not save settings: {e:#}");
         }
@@ -182,27 +251,53 @@ impl App {
             }
         }
 
+        let t = Instant::now();
         let pointer = self.desktop.pointer();
         self.scene.screens.clear();
         self.scene
             .screens
             .extend(self.screens.iter().map(|s| s.frame));
         self.desktop.obstacles(&mut self.scene.obstacles);
+        let t = self.profile.add(0, t);
+        if now - self.date_checked > Duration::from_secs(30) {
+            self.date_checked = now;
+            if let Some(tree) = &mut self.tree {
+                tree.refresh_date();
+            }
+        }
+        if let Some(tree) = &mut self.tree {
+            let occluded = pointer
+                .pos
+                .is_some_and(|p| self.scene.occluded(p, usize::MAX));
+            if tree.update(dt, pointer, occluded, self.desktop.as_mut())
+                && let Err(e) = config::save_advent(tree.state())
+            {
+                log::warn!("could not save the tree: {e:#}");
+            }
+            self.scene.obstacles.extend(tree.ledges());
+        }
         self.scene.cursor = pointer.pos;
         self.scene.grab = pointer.grab;
         self.scene.mouse_down = pointer.down;
         self.scene.quality = self.desktop.quality();
 
+        let t = self.profile.add(1, t);
         self.world.step(dt, &self.scene);
+        let t = self.profile.add(2, t);
         self.update_click_catching();
 
         if let Some(renderer) = &mut self.renderer {
             self.draw.build(&self.world);
-            renderer.upload(&self.draw);
             for o in &mut self.overlays {
                 o.target.set_viewport(o.screen.frame, o.screen.scale);
-                renderer.render(&mut o.target);
+                renderer.render(&mut o.target, &self.draw);
             }
+            let t = self.profile.add(3, t);
+            if let Some(tree) = &mut self.tree {
+                tree.render(renderer);
+            }
+            self.profile.add(4, t);
+            self.profile.frame();
         }
 
         let fps = if self.scene.quality < 1.0 {
