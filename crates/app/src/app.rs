@@ -20,6 +20,8 @@ use crate::tree_window::TreeWindow;
 
 /// How often to look for added or removed screens.
 const SCREEN_POLL: Duration = Duration::from_secs(2);
+/// How long after the last fast motion the frame rate may drop.
+const CALM_AFTER: Duration = Duration::from_millis(800);
 /// Frame interval when nothing is moving.
 const IDLE_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -29,6 +31,8 @@ struct Profile {
     enabled: bool,
     frames: u32,
     phases: [f64; 5],
+    lively: u32,
+    moved: u32,
     since: Option<Instant>,
 }
 
@@ -53,7 +57,13 @@ impl Profile {
                 .zip(self.phases)
                 .map(|(n, t)| format!("{n} {:.2}ms", t * 1000.0 / self.frames as f64))
                 .collect();
-            log::info!("{} fps, {}", self.frames / 5, report.join(", "));
+            log::info!(
+                "{} fps, {}; lively {} moved {}",
+                self.frames / 5,
+                report.join(", "),
+                self.lively,
+                self.moved
+            );
             *self = Self {
                 enabled: true,
                 ..Self::default()
@@ -79,6 +89,8 @@ pub struct App {
     screens: Vec<Screen>,
     scene: Scene,
     draw: DrawList,
+    last_obstacles: Vec<freeflake_core::Obstacle>,
+    last_activity: Instant,
     /// Areas where falling snow is hidden (windows, when snow over windows
     /// is off).
     hidden: Vec<freeflake_core::Rect>,
@@ -121,6 +133,8 @@ impl App {
             screens: Vec::new(),
             scene: Scene::default(),
             draw: DrawList::default(),
+            last_obstacles: Vec::new(),
+            last_activity: now,
             hidden: Vec::new(),
             tray: None,
             tree: None,
@@ -367,14 +381,29 @@ impl App {
             }
             let t = self.profile.add(3, t);
             if let Some(tree) = &mut self.tree {
-                tree.render(renderer);
+                let covered = tree.covered_by(&self.scene.obstacles);
+                tree.render(renderer, covered);
             }
             self.profile.add(4, t);
             self.profile.frame();
         }
 
+        let lively = self.world.is_lively();
+        let moved = self.scene.obstacles != self.last_obstacles;
+        if lively || moved {
+            self.last_activity = now;
+        }
+        if self.profile.enabled {
+            self.profile.lively += lively as u32;
+            self.profile.moved += moved as u32;
+        }
+        std::mem::swap(&mut self.last_obstacles, &mut self.scene.obstacles);
+        self.scene.obstacles.clone_from(&self.last_obstacles);
+        let calm = self.settings.save_power && now - self.last_activity > CALM_AFTER;
         let fps = if self.scene.quality < 1.0 {
             self.settings.low_power_fps
+        } else if calm {
+            self.settings.calm_fps
         } else {
             self.settings.fps
         };

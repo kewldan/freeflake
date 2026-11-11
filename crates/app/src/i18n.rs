@@ -66,6 +66,8 @@ strings! {
     Performance => "Производительность", "Performance";
     Fps => "Кадров в секунду", "Frames per second";
     LowPowerFps => "В режиме энергосбережения", "On battery saver";
+    SavePower => "Экономить энергию: реже кадры, пока ничего не движется быстро", "Save power: fewer frames while nothing moves fast";
+    CalmFps => "Кадров в спокойном режиме", "Frames per second when calm";
     Autostart => "Запускать при входе в систему", "Start at login";
     About => "freeflake на GitHub", "freeflake on GitHub";
 }

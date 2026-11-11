@@ -82,6 +82,10 @@ pub struct Settings {
     pub show_tree: bool,
     /// Target frame rate.
     pub fps: u32,
+    /// Drop to `calm_fps` while nothing moves fast (falling snow alone).
+    pub save_power: bool,
+    /// Frame rate for calm moments when `save_power` is on.
+    pub calm_fps: u32,
     /// Frame rate on battery saver or when the machine is hot.
     pub low_power_fps: u32,
 }
@@ -100,6 +104,8 @@ impl Default for Settings {
             max_ground_drift: 60.0,
             show_tree: true,
             fps: 60,
+            save_power: true,
+            calm_fps: 30,
             low_power_fps: 30,
         }
     }
@@ -113,6 +119,7 @@ impl Settings {
         self.max_ground_drift = self.max_ground_drift.clamp(0.0, 300.0);
         self.fps = self.fps.clamp(15, 240);
         self.low_power_fps = self.low_power_fps.clamp(10, self.fps);
+        self.calm_fps = self.calm_fps.clamp(10, self.fps);
         self
     }
 }

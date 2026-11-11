@@ -12,9 +12,9 @@ use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-/// Frame interval for the tree when nobody touches it: the lights blink
-/// slowly enough for 20 fps.
-const IDLE_FRAME: Duration = Duration::from_millis(50);
+/// Frame interval for an animated tree nobody touches: the lights blink
+/// slowly enough for 10 fps.
+const IDLE_FRAME: Duration = Duration::from_millis(100);
 
 /// Obstacle ids for the tree's branches; far above any real window number.
 const LEDGE_ID_BASE: u64 = 1 << 48;
@@ -35,6 +35,7 @@ pub struct TreeWindow {
     visible: bool,
     /// Render on the next frame regardless of the idle rate.
     urgent: bool,
+    last_inside: Option<glam::Vec2>,
     last_render: Instant,
 }
 
@@ -79,6 +80,7 @@ impl TreeWindow {
             was_down: false,
             visible: true,
             urgent: true,
+            last_inside: None,
             last_render: Instant::now(),
         })
     }
@@ -97,6 +99,7 @@ impl TreeWindow {
 
     pub fn refresh_date(&mut self) {
         self.tree.set_today(crate::config::today());
+        self.urgent = true;
     }
 
     /// Branch ledges as snow-holding obstacles in desktop points.
@@ -135,9 +138,11 @@ impl TreeWindow {
             (None, Some(l)) if dragging => self.tree.pointer_move(l),
             _ => self.tree.pointer_leave(),
         }
-        if inside.is_some() || dragging {
+        // Redraw when the cursor moves over the tree or leaves it.
+        if inside != self.last_inside || dragging {
             self.urgent = true;
         }
+        self.last_inside = inside;
         let catch = dragging || inside.is_some_and(|l| self.tree.interactive_at(l));
         if catch != self.catches_clicks {
             self.catches_clicks = catch;
@@ -158,8 +163,20 @@ impl TreeWindow {
         changed
     }
 
-    pub fn render(&mut self, renderer: &Renderer) {
-        if !self.visible || (!self.urgent && self.last_render.elapsed() < IDLE_FRAME) {
+    /// Whether a window completely covers the tree.
+    pub fn covered_by(&self, obstacles: &[Obstacle]) -> bool {
+        obstacles.iter().any(|o| {
+            !is_tree_ledge(o.id)
+                && o.rect.x <= self.frame.x
+                && o.rect.y <= self.frame.y
+                && o.rect.right() >= self.frame.right()
+                && o.rect.bottom() >= self.frame.bottom()
+        })
+    }
+
+    pub fn render(&mut self, renderer: &Renderer, covered: bool) {
+        let due = self.tree.is_animated() && self.last_render.elapsed() >= IDLE_FRAME;
+        if !self.visible || covered || !(self.urgent || due) {
             return;
         }
         self.urgent = false;

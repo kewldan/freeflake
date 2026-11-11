@@ -233,6 +233,11 @@ fn contents(ui: &mut egui::Ui, s: &mut Settings, autostart: bool, requests: &mut
     ui.separator();
     ui.heading(t(S::Performance));
     ui.add(egui::Slider::new(&mut s.fps, 20..=120).text(t(S::Fps)));
+    ui.checkbox(&mut s.save_power, t(S::SavePower));
+    ui.add_enabled(
+        s.save_power,
+        egui::Slider::new(&mut s.calm_fps, 10..=60).text(t(S::CalmFps)),
+    );
     ui.add(egui::Slider::new(&mut s.low_power_fps, 10..=60).text(t(S::LowPowerFps)));
     let mut on = autostart;
     if ui.checkbox(&mut on, t(S::Autostart)).changed() {

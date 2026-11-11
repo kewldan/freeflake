@@ -262,6 +262,23 @@ impl Tree {
         self.bursts.retain(|b| b.1 < 0.8);
     }
 
+    /// Whether anything on the tree moves by itself (blinking garlands, the
+    /// glowing star, opening bursts); a still tree needs no redraws.
+    pub fn is_animated(&self) -> bool {
+        !self.bursts.is_empty()
+            || self.drag.is_some()
+            || self
+                .state
+                .hung
+                .iter()
+                .any(|h| matches!(h.ornament, Ornament::Garland | Ornament::Topper))
+            || self
+                .state
+                .floor
+                .iter()
+                .any(|o| matches!(o, Ornament::Garland))
+    }
+
     pub fn bursts(&self) -> &[(Vec2, f32)] {
         &self.bursts
     }

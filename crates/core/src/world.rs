@@ -20,6 +20,8 @@ const WIND_SPEED: Vec2 = Vec2::new(150.0, 70.0);
 const MITTEN_RADIUS: f32 = 14.0;
 /// Cursor speed below which the mitten does nothing.
 const MITTEN_MIN_SPEED: f32 = 40.0;
+/// How long a disturbance keeps the world lively, in seconds.
+const LIVELY_FOR: f32 = 1.5;
 
 pub struct World {
     settings: Settings,
@@ -31,6 +33,8 @@ pub struct World {
     last_cursor: Option<Vec2>,
     cursor_vel: Vec2,
     spills: Vec<Spill>,
+    /// Simulation time of the last thing the user stirred up.
+    last_disturbance: f32,
     balls: Snowballs,
 }
 
@@ -44,6 +48,7 @@ impl World {
             time: 0.0,
             spawn_debt: 0.0,
             last_cursor: None,
+            last_disturbance: f32::NEG_INFINITY,
             cursor_vel: Vec2::ZERO,
             spills: Vec::new(),
             balls: Snowballs::default(),
@@ -77,6 +82,18 @@ impl World {
         self.settings.accumulate && self.balls.wants_pointer(p, &self.drifts)
     }
 
+    /// Something the user did is still moving: snow brushed by the mitten,
+    /// shovelled or dropped by a window, snowballs in hand or in flight.
+    /// Clumps sliding off piles on their own do not count.
+    pub fn is_lively(&self) -> bool {
+        self.time - self.last_disturbance < LIVELY_FOR
+            || self
+                .balls
+                .balls()
+                .iter()
+                .any(|b| !matches!(b.state, crate::snowball::BallState::Resting(_)))
+    }
+
     /// A snowball is being dragged.
     pub fn is_holding(&self) -> bool {
         self.balls.is_holding()
@@ -108,6 +125,7 @@ impl World {
     pub fn shovel(&mut self) {
         self.drifts.clear(&mut self.rng, &mut self.spills);
         self.balls.clear(&mut self.spills);
+        self.last_disturbance = self.time;
         self.flush_spills();
     }
 
@@ -123,6 +141,10 @@ impl World {
         if self.settings.accumulate {
             self.drifts
                 .sync(scene, &self.settings, dt, &mut self.spills);
+            // Closed, shaken or resized windows drop snow.
+            if !self.spills.is_empty() {
+                self.last_disturbance = self.time;
+            }
         } else {
             self.drifts.clear(&mut self.rng, &mut self.spills);
             self.balls.clear(&mut self.spills);
@@ -144,6 +166,7 @@ impl World {
             && !scene.grab
             && self.cursor_vel.length() > MITTEN_MIN_SPEED
         {
+            let before = self.spills.len();
             self.drifts.brush(
                 cursor,
                 self.cursor_vel,
@@ -151,6 +174,9 @@ impl World {
                 &mut self.rng,
                 &mut self.spills,
             );
+            if self.spills.len() > before {
+                self.last_disturbance = self.time;
+            }
         }
         self.flush_spills();
     }
