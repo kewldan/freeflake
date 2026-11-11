@@ -95,6 +95,7 @@ impl DrawList {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn tri(&mut self, top: bool, a: Vec2, b: Vec2, c: Vec2, ca: Rgba, cb: Rgba, cc: Rgba) {
         let out = if top {
             &mut self.mesh_top
@@ -186,7 +187,7 @@ impl DrawList {
             return;
         }
         let cx = TREE_SIZE.x / 2.0;
-        let tilt = if seed % 2 == 0 { 8.0 } else { -8.0 };
+        let tilt = if seed.is_multiple_of(2) { 8.0 } else { -8.0 };
         let point = |t: f32| {
             let x = cx - half + t * half * 2.0;
             Vec2::new(
@@ -445,7 +446,7 @@ impl DrawList {
 
     fn gift(&mut self, r: Rect, day: u32, hover: bool, time: f32) {
         let mut color = GIFT_COLORS[day as usize % GIFT_COLORS.len()];
-        let ribbon_color = if day % 2 == 0 {
+        let ribbon_color = if day.is_multiple_of(2) {
             GOLD
         } else {
             [0.95, 0.95, 0.97, 1.0]
