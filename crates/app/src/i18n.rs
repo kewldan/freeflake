@@ -54,4 +54,17 @@ strings! {
     Tree => "Ёлка", "Christmas tree";
     Settings => "Настройки…", "Settings…";
     Quit => "Выход", "Quit";
+    SettingsTitle => "настройки", "settings";
+    WindHint => "Перетащите точку: в сторону, вверх или вниз. Двойной щелчок — штиль.", "Drag the dot: sideways, up or down. Double-click for calm.";
+    MaxWindowPile => "Сугроб на окне, пт", "Pile on windows, pt";
+    MaxGroundPile => "Сугроб внизу экрана, пт", "Pile at the bottom, pt";
+    Melt => "Подтаивание", "Slow melting";
+    SnowballHint => "Зажмите Option (Alt) и ведите по сугробу, чтобы скатать снежок. Отпустите — бросок. Поставьте шары друг на друга — получится снеговик.", "Hold Option (Alt) and drag along a pile to roll a snowball. Let go to throw it. Stack balls to make a snowman.";
+    ShowTree => "Показывать ёлку на рабочем столе", "Show the tree on the desktop";
+    TreeHint => "С 1 декабря под ёлкой каждый день появляется подарок. Открывайте и вешайте игрушки на ветки.", "From December 1 a gift appears under the tree every day. Open it and hang the ornaments.";
+    Performance => "Производительность", "Performance";
+    Fps => "Кадров в секунду", "Frames per second";
+    LowPowerFps => "В режиме энергосбережения", "On battery saver";
+    Autostart => "Запускать при входе в систему", "Start at login";
+    About => "freeflake на GitHub", "freeflake on GitHub";
 }

@@ -3,8 +3,10 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod app;
+mod autostart;
 mod config;
 mod i18n;
+mod settings_window;
 mod tray;
 mod tree_window;
 

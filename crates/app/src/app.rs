@@ -14,6 +14,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::config;
+use crate::settings_window::{Request, SettingsWindow};
 use crate::tray::{Action, Tray};
 use crate::tree_window::TreeWindow;
 
@@ -80,6 +81,8 @@ pub struct App {
     draw: DrawList,
     tray: Option<Tray>,
     tree: Option<TreeWindow>,
+    settings_window: Option<SettingsWindow>,
+    autostart: bool,
     date_checked: Instant,
     profile: Profile,
     last_tick: Instant,
@@ -110,6 +113,8 @@ impl App {
             draw: DrawList::default(),
             tray: None,
             tree: None,
+            settings_window: None,
+            autostart: crate::autostart::is_enabled(),
             date_checked: now,
             profile: Profile {
                 enabled: std::env::var_os("FREEFLAKE_PROFILE").is_some(),
@@ -205,6 +210,46 @@ impl App {
         }
     }
 
+    fn open_settings(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(w) = &self.settings_window {
+            w.focus();
+            return;
+        }
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+        match SettingsWindow::open(event_loop, renderer.gpu()) {
+            Ok(w) => self.settings_window = Some(w),
+            Err(e) => log::error!("settings window: {e:#}"),
+        }
+    }
+
+    fn settings_window_event(&mut self, event: WindowEvent) {
+        let (Some(w), Some(renderer)) = (&mut self.settings_window, &self.renderer) else {
+            return;
+        };
+        let gpu = renderer.gpu().clone();
+        if matches!(event, WindowEvent::RedrawRequested) {
+            let mut settings = self.settings.clone();
+            let requests = w.redraw(&gpu, &mut settings, self.autostart);
+            self.apply_settings(settings.sanitized());
+            if let Some(tray) = &self.tray {
+                tray.sync(&self.settings);
+            }
+            for r in requests {
+                match r {
+                    Request::Shovel => self.world.shovel(),
+                    Request::SetAutostart(on) => match crate::autostart::set_enabled(on) {
+                        Ok(()) => self.autostart = on,
+                        Err(e) => log::warn!("autostart: {e:#}"),
+                    },
+                }
+            }
+        } else if !w.on_event(&gpu, &event) {
+            self.settings_window = None;
+        }
+    }
+
     fn handle_tray(&mut self, event_loop: &ActiveEventLoop) {
         let Some(tray) = &self.tray else {
             return;
@@ -213,7 +258,7 @@ impl App {
             match action {
                 Action::Settings(s) => self.apply_settings(s),
                 Action::Shovel => self.world.shovel(),
-                Action::OpenSettings => log::info!("settings window is not implemented yet"),
+                Action::OpenSettings => self.open_settings(event_loop),
                 Action::Quit => event_loop.exit(),
             }
         }
@@ -327,14 +372,22 @@ impl ApplicationHandler for App {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.overlays.is_empty()
-            && let Err(e) = self.rebuild_overlays(event_loop)
-        {
-            self.fail(event_loop, e);
+        if self.overlays.is_empty() {
+            if let Err(e) = self.rebuild_overlays(event_loop) {
+                self.fail(event_loop, e);
+                return;
+            }
+            if std::env::args().any(|a| a == "--settings") {
+                self.open_settings(event_loop);
+            }
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if self.settings_window.as_ref().is_some_and(|w| w.id() == id) {
+            self.settings_window_event(event);
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {

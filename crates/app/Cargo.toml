@@ -10,12 +10,16 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+auto-launch = "0.6"
 chrono.workspace = true
 directories.workspace = true
 env_logger.workspace = true
 freeflake-core.workspace = true
 freeflake-platform.workspace = true
 freeflake-render.workspace = true
+egui = { version = "0.37", features = ["default_fonts"] }
+egui-wgpu = "0.37"
+egui-winit = "0.37"
 glam.workspace = true
 log.workspace = true
 serde.workspace = true
