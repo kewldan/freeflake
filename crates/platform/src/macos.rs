@@ -10,29 +10,28 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use freeflake_core::{Obstacle, Rect};
 use glam::Vec2;
-use objc2::MainThreadMarker;
+use objc2::{AnyThread, MainThreadMarker};
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSEvent, NSEventModifierFlags, NSScreen, NSScreenSaverWindowLevel, NSView, NSWindow,
+    NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSWorkspace, NSScreen, NSScreenSaverWindowLevel, NSView, NSWindow,
     NSWindowCollectionBehavior,
 };
 use objc2_core_foundation::CFString;
 use objc2_core_graphics::{
     CGWindowListCopyWindowInfo, CGWindowListOption, kCGDesktopIconWindowLevel, kCGNullWindowID,
-    kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerName,
-    kCGWindowOwnerPID,
+    kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
 };
 use objc2_foundation::{
     NSArray, NSDictionary, NSNumber, NSPoint, NSProcessInfo, NSProcessInfoThermalState, NSRect,
-    NSSize, NSString,
+    NSSize, NSString, NSUserDefaults,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::{Desktop, Layer, Pointer, Screen};
 
-/// `kCGDockWindowLevel`.
-const DOCK_LEVEL: i64 = 20;
+/// Obstacle id for the Dock, which has no window of its own size.
+const DOCK_ID: u64 = 1 << 47;
 /// Smallest window that counts as an obstacle.
 const MIN_SIZE: f64 = 24.0;
 /// Window list polling while something moves, and when all is still.
@@ -47,6 +46,8 @@ pub struct MacDesktop {
     primary_height: f64,
     windows: Arc<Mutex<Vec<Obstacle>>>,
     stop: Arc<AtomicBool>,
+    /// The Dock's estimated frame, refreshed with the screen list.
+    dock: Option<Rect>,
 }
 
 impl MacDesktop {
@@ -67,6 +68,7 @@ impl MacDesktop {
             primary_height: 0.0,
             windows,
             stop,
+            dock: None,
         };
         this.refresh_primary();
         Ok(this)
@@ -175,14 +177,13 @@ fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
     let list: &NSArray<NSDictionary<NSString, AnyObject>> =
         unsafe { &*(&*list as *const _ as *const NSArray<NSDictionary<NSString, AnyObject>>) };
     // SAFETY: the key constants are valid for the life of the process.
-    let (k_number, k_layer, k_bounds, k_alpha, k_pid, k_owner) = unsafe {
+    let (k_number, k_layer, k_bounds, k_alpha, k_pid) = unsafe {
         (
             cf_key(kCGWindowNumber),
             cf_key(kCGWindowLayer),
             cf_key(kCGWindowBounds),
             cf_key(kCGWindowAlpha),
             cf_key(kCGWindowOwnerPID),
-            cf_key(kCGWindowOwnerName),
         )
     };
     for info in list.iter() {
@@ -191,8 +192,11 @@ fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
                 .and_then(|v| v.downcast::<NSNumber>().ok())
         };
         let layer = number(k_layer).map(|n| n.as_i64()).unwrap_or(0);
-        // Wallpaper helpers, notification centre, screen savers and the like.
-        if !matches!(layer, 0 | 3 | 8 | DOCK_LEVEL | 24 | 25) {
+        // Normal, floating and modal windows, plus the menu bar. The Dock's
+        // window covers the whole screen, so the Dock is estimated
+        // separately (see `estimate_dock`); wallpaper, notification centre
+        // and screen-saver layers never hold or hide snow.
+        if !matches!(layer, 0 | 3 | 8 | 24 | 25) {
             continue;
         }
         if number(k_pid).map(|n| n.as_i64()) == Some(pid) {
@@ -222,17 +226,9 @@ fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
         if w < MIN_SIZE || h < MIN_SIZE {
             continue;
         }
-        let holds_snow = match layer {
-            // Normal, floating and modal windows.
-            0 | 3 | 8 => true,
-            DOCK_LEVEL => info
-                .objectForKey(k_owner)
-                .and_then(|v| v.downcast::<NSString>().ok())
-                .is_some_and(|s| s.to_string() == "Dock"),
-            // The menu bar hides snow without holding it.
-            _ => false,
-        };
-        if layer == DOCK_LEVEL && !holds_snow {
+        let holds_snow = matches!(layer, 0 | 3 | 8);
+        if !holds_snow && h > 200.0 {
+            // A status-level window as big as a screen would hide everything.
             continue;
         }
         out.push(Obstacle {
@@ -246,18 +242,28 @@ fn read_windows(pid: i64, keys: &Keys, out: &mut Vec<Obstacle>) {
 impl Desktop for MacDesktop {
     fn screens(&mut self) -> Vec<Screen> {
         self.refresh_primary();
-        NSScreen::screens(self.mtm)
+        let screens: Vec<Screen> = NSScreen::screens(self.mtm)
             .iter()
             .map(|s| Screen {
                 frame: self.cocoa_to_desktop(s.frame()),
                 visible: self.cocoa_to_desktop(s.visibleFrame()),
                 scale: s.backingScaleFactor() as f32,
             })
-            .collect()
+            .collect();
+        self.dock = estimate_dock(&screens);
+        screens
     }
 
     fn obstacles(&mut self, out: &mut Vec<Obstacle>) {
         out.clear();
+        // The Dock floats above normal windows.
+        if let Some(rect) = self.dock {
+            out.push(Obstacle {
+                id: DOCK_ID,
+                rect,
+                holds_snow: true,
+            });
+        }
         let current = self.windows.lock().unwrap_or_else(|e| e.into_inner());
         out.extend_from_slice(&current);
     }
@@ -315,5 +321,129 @@ impl Desktop for MacDesktop {
     ) -> Result<()> {
         self.ns_window(window)?.setIgnoresMouseEvents(click_through);
         Ok(())
+    }
+}
+
+/// What the Dock shows, from its preferences and the running apps.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DockContents {
+    /// Icon size in points.
+    pub tile: f32,
+    /// Finder, pinned apps and running apps that are not pinned.
+    pub apps: usize,
+    /// Recent apps that are neither pinned nor running.
+    pub recents: usize,
+    /// Folders and files on the right side.
+    pub others: usize,
+}
+
+impl DockContents {
+    /// Width of a bottom Dock. Calibrated against the Dock's accessibility
+    /// frame on macOS 26: each cell is about 1.1 icons wide, separators half
+    /// an icon, plus padding at both ends.
+    pub fn width(&self) -> f32 {
+        let cells = self.apps + self.recents + self.others + 1; // + Trash
+        let separators = 1 + usize::from(self.recents > 0);
+        self.tile * (1.1 * cells as f32 + 0.5 * separators as f32 + 0.9)
+    }
+}
+
+/// The Dock is drawn inside a full-screen window, so its frame is not in the
+/// window list. Reading it exactly would need the Accessibility permission;
+/// instead the height comes from the screen's reserved area and the width
+/// from the Dock's contents. Returns None for hidden or side Docks.
+fn estimate_dock(screens: &[Screen]) -> Option<Rect> {
+    let defaults = NSUserDefaults::alloc();
+    let defaults = NSUserDefaults::initWithSuiteName(defaults, Some(&NSString::from_str("com.apple.dock")))?;
+    let key = |k: &str| NSString::from_str(k);
+    let orientation = defaults
+        .stringForKey(&key("orientation"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "bottom".into());
+    if orientation != "bottom" || defaults.boolForKey(&key("autohide")) {
+        return None;
+    }
+    // The screen whose bottom is reserved for the Dock.
+    let screen = screens
+        .iter()
+        .find(|s| s.frame.bottom() - s.visible.bottom() > 8.0)?;
+    let bundle_ids = |k: &str| -> Vec<String> {
+        defaults
+            .arrayForKey(&key(k))
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        let item = item.downcast::<NSDictionary>().ok()?;
+                        let data = item
+                            .objectForKey(&*key("tile-data"))?
+                            .downcast::<NSDictionary>()
+                            .ok()?;
+                        let id = data.objectForKey(&*key("bundle-identifier"))?;
+                        Some(id.downcast::<NSString>().ok()?.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let pinned = bundle_ids("persistent-apps");
+    let others = defaults
+        .arrayForKey(&key("persistent-others"))
+        .map(|a| a.count())
+        .unwrap_or(0);
+    let running: Vec<String> = NSWorkspace::sharedWorkspace()
+        .runningApplications()
+        .iter()
+        .filter(|a| a.activationPolicy() == NSApplicationActivationPolicy::Regular)
+        .filter_map(|a| a.bundleIdentifier().map(|b| b.to_string()))
+        .filter(|b| b != "com.apple.finder")
+        .collect();
+    let unpinned = running.iter().filter(|b| !pinned.contains(b)).count();
+    let show_recents = defaults.objectForKey(&key("show-recents")).is_none()
+        || defaults.boolForKey(&key("show-recents"));
+    let recents = if show_recents {
+        bundle_ids("recent-apps")
+            .iter()
+            .filter(|b| !pinned.contains(b) && !running.contains(b))
+            .count()
+            .min(3)
+    } else {
+        0
+    };
+    let mut tile = defaults.integerForKey(&key("tilesize")) as f32;
+    if tile <= 0.0 {
+        tile = 48.0;
+    }
+    let contents = DockContents {
+        tile,
+        apps: 1 + pinned.len() + unpinned,
+        recents,
+        others,
+    };
+    let width = contents.width().min(screen.frame.w);
+    let top = screen.visible.bottom() - 4.0;
+    Some(Rect::new(
+        screen.frame.center().x - width / 2.0,
+        top,
+        width,
+        screen.frame.bottom() - top,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dock_width_matches_calibration() {
+        // Measured: tile size 62, Finder + 8 pinned + 1 running, one folder,
+        // no recents: the Dock's accessibility frame is 904 points wide.
+        let dock = DockContents {
+            tile: 62.0,
+            apps: 10,
+            recents: 0,
+            others: 1,
+        };
+        assert!((dock.width() - 904.0).abs() < 8.0, "{}", dock.width());
     }
 }
