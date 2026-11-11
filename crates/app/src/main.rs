@@ -26,6 +26,13 @@ fn main() -> Result<()> {
         // No Dock icon, no app menu: freeflake lives in the menu bar.
         builder.with_activation_policy(ActivationPolicy::Accessory);
     }
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        // Overlays need X11 features (override-redirect, input shapes); on
+        // Wayland sessions this runs through XWayland.
+        builder.with_x11();
+    }
     let event_loop = builder.build()?;
     let mut app = app::App::new(config::load_settings(), &event_loop)?;
     event_loop.run_app(&mut app)?;

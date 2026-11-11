@@ -160,6 +160,13 @@ impl App {
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_position(LogicalPosition::new(frame.x as f64, frame.y as f64))
                 .with_inner_size(LogicalSize::new(frame.w as f64, frame.h as f64));
+            #[cfg(target_os = "linux")]
+            let attrs = {
+                use winit::platform::x11::WindowAttributesExtX11;
+                // Unmanaged by the window manager: no decorations, no focus,
+                // always above.
+                attrs.with_override_redirect(true)
+            };
             let window = Arc::new(event_loop.create_window(attrs)?);
             self.desktop
                 .configure_window(window.as_ref(), Layer::Overlay, frame)?;

@@ -9,6 +9,8 @@ use freeflake_core::{Obstacle, Rect};
 use glam::Vec2;
 use raw_window_handle::HasWindowHandle;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -84,7 +86,11 @@ pub fn desktop() -> Result<Box<dyn Desktop>> {
     {
         Ok(Box::new(windows::WinDesktop::new()?))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        Ok(Box::new(linux::X11Desktop::new()?))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         anyhow::bail!("this platform is not supported yet")
     }
