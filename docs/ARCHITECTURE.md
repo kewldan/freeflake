@@ -35,9 +35,9 @@ windows.
 | | Overlay | Window list | Notes |
 |---|---|---|---|
 | macOS 14+ | NSWindow at screen-saver level | `CGWindowListCopyWindowInfo` (bounds need no permission) | |
-| Windows 10 22H2+ / 11 | layered topmost tool window | `EnumWindows` + DWM frame bounds | planned |
-| Linux X11 | override-redirect ARGB window, empty input shape | `_NET_CLIENT_LIST_STACKING` | planned |
-| Linux Wayland | `wlr-layer-shell` overlay surface | compositor IPC (Hyprland, Sway, niri, KWin) | planned |
+| Windows 10 22H2+ / 11 | layered topmost tool window, DirectComposition swapchain | `EnumWindows` + DWM frame bounds | untested |
+| Linux X11 | override-redirect ARGB window, empty XFixes input region | `_NET_CLIENT_LIST_STACKING` | untested |
+| Linux Wayland | through XWayland, same as X11 | X11 clients only | untested |
 
 ## Testing
 
