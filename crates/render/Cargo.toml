@@ -1,0 +1,21 @@
+[package]
+name = "freeflake-render"
+description = "wgpu renderer for freeflake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+freeflake-core.workspace = true
+glam.workspace = true
+log.workspace = true
+pollster.workspace = true
+wgpu = "30"
+
+[dev-dependencies]
+png = "0.18"

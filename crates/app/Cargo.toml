@@ -1,0 +1,24 @@
+[package]
+name = "freeflake"
+description = "Free, open-source snow on your desktop, with an advent Christmas tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+directories.workspace = true
+env_logger.workspace = true
+freeflake-core.workspace = true
+freeflake-platform.workspace = true
+freeflake-render.workspace = true
+glam.workspace = true
+log.workspace = true
+serde.workspace = true
+sys-locale = "0.3"
+toml.workspace = true
+tray-icon = "0.26"
+winit = "0.30"

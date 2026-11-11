@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["kewldan"]
+repository = "https://github.com/kewldan/freeflake"
+rust-version = "1.88"
+
+[workspace.dependencies]
+freeflake-core = { path = "crates/core" }
+freeflake-render = { path = "crates/render" }
+freeflake-platform = { path = "crates/platform" }
+
+anyhow = "1"
+bytemuck = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+directories = "6"
+fastrand = "2"
+glam = { version = "0.34", features = ["serde", "bytemuck"] }
+log = "0.4"
+env_logger = "0.11"
+pollster = "1"
+raw-window-handle = { version = "0.6", features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

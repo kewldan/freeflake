@@ -1,0 +1,23 @@
+[package]
+name = "freeflake-platform"
+description = "Native desktop integration for freeflake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+freeflake-core.workspace = true
+glam.workspace = true
+log.workspace = true
+raw-window-handle.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
