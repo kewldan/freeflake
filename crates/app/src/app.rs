@@ -94,8 +94,15 @@ pub struct App {
 impl App {
     pub fn new(settings: Settings, event_loop: &EventLoop<()>) -> Result<Self> {
         let display = Box::new(event_loop.owned_display_handle());
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(display));
+        #[allow(unused_mut)]
+        let mut desc = wgpu::InstanceDescriptor::new_with_display_handle(display);
+        #[cfg(target_os = "windows")]
+        {
+            // Only DirectComposition swapchains support per-pixel transparency.
+            desc.backends = wgpu::Backends::DX12;
+            desc.backend_options.dx12.presentation_system = wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        }
+        let instance = wgpu::Instance::new(desc);
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)

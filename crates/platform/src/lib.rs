@@ -11,6 +11,8 @@ use raw_window_handle::HasWindowHandle;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 
 /// A physical display.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,7 +80,11 @@ pub fn desktop() -> Result<Box<dyn Desktop>> {
     {
         Ok(Box::new(macos::MacDesktop::new()?))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        Ok(Box::new(windows::WinDesktop::new()?))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         anyhow::bail!("this platform is not supported yet")
     }

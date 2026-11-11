@@ -91,11 +91,16 @@ impl Tray {
             &quit,
         ])?;
 
-        let icon = TrayIconBuilder::new()
+        let builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("freeflake")
-            .with_icon_templated(snowflake_icon())
-            .build()?;
+            .with_tooltip("freeflake");
+        // macOS tints a black template icon to fit the menu bar; elsewhere
+        // the icon is drawn white.
+        #[cfg(target_os = "macos")]
+        let builder = builder.with_icon_templated(snowflake_icon(0));
+        #[cfg(not(target_os = "macos"))]
+        let builder = builder.with_icon(snowflake_icon(255));
+        let icon = builder.build()?;
 
         let this = Self {
             _icon: icon,
@@ -170,7 +175,7 @@ impl Tray {
 }
 
 /// Draws a six-armed snowflake as a template icon.
-fn snowflake_icon() -> Icon {
+fn snowflake_icon(shade: u8) -> Icon {
     const N: usize = 44;
     let mut rgba = vec![0u8; N * N * 4];
     let c = Vec2::splat(N as f32 / 2.0);
@@ -196,7 +201,8 @@ fn snowflake_icon() -> Icon {
                 .map(|&(a, b)| distance_to_segment(p, a, b))
                 .fold(f32::MAX, f32::min);
             let alpha = (2.2 - d).clamp(0.0, 1.0);
-            rgba[(y * N + x) * 4 + 3] = (alpha * 255.0) as u8;
+            let px = &mut rgba[(y * N + x) * 4..][..4];
+            px.copy_from_slice(&[shade, shade, shade, (alpha * 255.0) as u8]);
         }
     }
     Icon::from_rgba(rgba, N as u32, N as u32).expect("valid icon")
