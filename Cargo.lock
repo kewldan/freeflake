@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "freeflake"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "auto-launch",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "freeflake-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "fastrand",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "freeflake-platform"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "freeflake-core",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "freeflake-render"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "bytemuck",

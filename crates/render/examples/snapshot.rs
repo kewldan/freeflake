@@ -164,5 +164,35 @@ fn main() -> Result<()> {
         sim.as_secs_f64() * 1000.0 / steps as f64,
         build.as_secs_f64() * 1000.0,
     );
+
+    // Optional animation frames: FREEFLAKE_FRAMES=dir:count.
+    if let Ok(spec) = std::env::var("FREEFLAKE_FRAMES") {
+        let (dir, count) = spec.split_once(':').unwrap_or((&spec, "90"));
+        let count: usize = count.parse().unwrap_or(90);
+        std::fs::create_dir_all(dir)?;
+        let background: Vec<_> = draw.mesh[..draw.mesh.len() - drift_len(&world)].to_vec();
+        for i in 0..count {
+            for _ in 0..2 {
+                world.step(1.0 / 60.0, &scene);
+            }
+            draw.build(&world);
+            draw.mesh.splice(0..0, background.iter().copied());
+            let image = renderer.render_offscreen(&draw, screen, 1.0, [0.18, 0.33, 0.52])?;
+            let file = BufWriter::new(File::create(format!("{dir}/{i:04}.png"))?);
+            let mut enc = png::Encoder::new(file, image.width, image.height);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header()?.write_image_data(&image.pixels)?;
+        }
+        println!("{count} frames in {dir}");
+    }
     Ok(())
+}
+
+/// Number of mesh vertices the world itself produces (piles), so the
+/// background quads can be told apart.
+fn drift_len(world: &World) -> usize {
+    let mut list = DrawList::default();
+    list.build(world);
+    list.mesh.len()
 }

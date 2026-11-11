@@ -48,8 +48,9 @@ jobs:
               mkdir "$name" && cp "$bin" README.md LICENSE "$name/"
               tar -czf "dist/$name.tar.gz" "$name"
               app="freeflake.app"
-              mkdir -p "$app/Contents/MacOS"
+              mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
               cp "$bin" "$app/Contents/MacOS/freeflake"
+              cp packaging/macos/AppIcon.icns "$app/Contents/Resources/"
               sed "s/@VERSION@/${version}/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
               ditto -c -k --keepParent "$app" "dist/freeflake-${version}-${{ matrix.target }}.app.zip"
               ;;

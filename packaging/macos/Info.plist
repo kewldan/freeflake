@@ -10,6 +10,8 @@
     <string>io.github.kewldan.freeflake</string>
     <key>CFBundleExecutable</key>
     <string>freeflake</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
